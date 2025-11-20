@@ -76,6 +76,9 @@ export const insertMedicineSchema = createInsertSchema(medicines).omit({
 export const insertIntakeLogSchema = createInsertSchema(intakeLogs).omit({
   id: true,
   createdAt: true,
+}).extend({
+  scheduledTime: z.string().datetime().or(z.date()),
+  takenTime: z.string().datetime().or(z.date()).optional(),
 });
 
 export const insertNotificationSchema = createInsertSchema(notifications).omit({

@@ -6,11 +6,59 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Bell, Clock, Check } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Notification } from "@shared/schema";
+import { useEffect, useRef } from "react";
 
 export function NotificationCenter() {
+  const prevNotificationsRef = useRef<number>(0);
+  
   const { data: notifications = [] } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
+    refetchInterval: 3000, // Poll for new notifications every 3 seconds
   });
+
+  // Play sound when new notification arrives
+  useEffect(() => {
+    if (notifications.length > prevNotificationsRef.current) {
+      playNotificationSound();
+      showBrowserNotification(notifications[0]);
+    }
+    prevNotificationsRef.current = notifications.length;
+  }, [notifications]);
+
+  const playNotificationSound = () => {
+    // Create a simple beep sound using Web Audio API
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = 800;
+    oscillator.type = "sine";
+    
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5);
+  };
+
+  const showBrowserNotification = (notification: Notification) => {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(notification.title, {
+        body: notification.message,
+        icon: "/favicon.png",
+      });
+    }
+  };
+
+  // Request notification permission on component mount
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
 
   const markAsReadMutation = useMutation({
     mutationFn: async (notificationId: string) => {

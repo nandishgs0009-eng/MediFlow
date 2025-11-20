@@ -43,16 +43,17 @@ export default function Landing() {
 
   const signupMutation = useMutation({
     mutationFn: async (data: typeof signupData) => {
-      return await apiRequest("POST", "/api/auth/signup", data);
+      const response = await apiRequest("POST", "/api/auth/signup", data);
+      return response.json();
     },
     onSuccess: (user: User) => {
       login(user);
       toast({
         title: "Account created",
-        description: "Welcome to MediTrack!",
+        description: "Welcome to MediFlow!",
       });
       setShowPatientSignup(false);
-      setLocation("/patient/dashboard");
+      setLocation("/patient/overview");
     },
     onError: (error: any) => {
       toast({
@@ -65,16 +66,34 @@ export default function Landing() {
 
   const loginMutation = useMutation({
     mutationFn: async (data: typeof loginData) => {
-      return await apiRequest("POST", "/api/auth/login", data);
+      const response = await apiRequest("POST", "/api/auth/login", data);
+      return response.json();
     },
     onSuccess: (user: User) => {
+      console.log("✅ Patient login response:", user);
+      console.log("   Role:", `"${user.role}"`, "Type:", typeof user.role);
+      
+      // Only allow patient role, reject admin users
+      const isPatient = user.role && user.role.toLowerCase() === "patient";
+      console.log(`   Is Patient Check: ${isPatient}`);
+      
+      if (!isPatient) {
+        console.error("❌ Admin users cannot login from patient side. Role:", user.role);
+        toast({
+          title: "Access denied",
+          description: "Admin users must use the Admin Sign In. Please try the Admin Sign In option.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       login(user);
       toast({
         title: "Welcome back!",
         description: "You've successfully logged in",
       });
       setShowPatientLogin(false);
-      setLocation("/patient/dashboard");
+      setLocation("/patient/overview");
     },
     onError: (error: any) => {
       toast({
@@ -87,17 +106,29 @@ export default function Landing() {
 
   const adminLoginMutation = useMutation({
     mutationFn: async (data: typeof adminLoginData) => {
-      return await apiRequest("POST", "/api/auth/login", data);
+      const response = await apiRequest("POST", "/api/auth/login", data);
+      return response.json();
     },
     onSuccess: (user: User) => {
-      if (user.role !== "admin") {
+      console.log("✅ Admin login response:", user);
+      console.log("   Role:", `"${user.role}"`, "Type:", typeof user.role);
+      
+      const isAdmin = user.role && user.role.toLowerCase() === "admin";
+      console.log(`   Is Admin Check: ${isAdmin}`);
+      
+      if (!isAdmin) {
+        console.error("❌ User role is not admin. Expected 'admin', got:", user.role);
         toast({
           title: "Access denied",
-          description: "Admin credentials required",
+          description: `Admin credentials required. Your role: ${user.role || "unknown"}`,
           variant: "destructive",
         });
         return;
       }
+      
+      // Invalidate auth cache to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      
       login(user);
       toast({
         title: "Welcome, Admin",
@@ -107,6 +138,7 @@ export default function Landing() {
       setLocation("/admin/dashboard");
     },
     onError: (error: any) => {
+      console.error("❌ Admin login error:", error);
       toast({
         title: "Login failed",
         description: error.message || "Invalid credentials",

@@ -38,6 +38,18 @@ export function LogIntakeDialog({ open, onOpenChange, medicineId }: LogIntakeDia
     enabled: !!medicineId,
   });
 
+  const { data: todayIntake } = useQuery({
+    queryKey: ["/api/intake-logs/today", medicineId],
+    queryFn: async () => {
+      if (!medicineId) return null;
+      const response = await fetch(`/api/intake-logs/today/${medicineId}`);
+      if (!response.ok) return null;
+      return response.json();
+    },
+    enabled: !!medicineId && open,
+    refetchInterval: 1000, // Check every second
+  });
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -157,10 +169,14 @@ export function LogIntakeDialog({ open, onOpenChange, medicineId }: LogIntakeDia
               <Button
                 type="submit"
                 className="flex-1"
-                disabled={createMutation.isPending}
+                disabled={createMutation.isPending || !!todayIntake}
                 data-testid="button-submit-intake"
               >
-                {createMutation.isPending ? "Logging..." : "Confirm Intake"}
+                {todayIntake
+                  ? "Already taken today"
+                  : createMutation.isPending
+                  ? "Logging..."
+                  : "Confirm Intake"}
               </Button>
             </div>
           </form>

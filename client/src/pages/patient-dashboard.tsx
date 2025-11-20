@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,18 +9,91 @@ import { Plus, Pill, Calendar, TrendingUp, Clock, CheckCircle2, XCircle } from "
 import { AddTreatmentDialog } from "@/components/add-treatment-dialog";
 import { AddMedicineDialog } from "@/components/add-medicine-dialog";
 import { LogIntakeDialog } from "@/components/log-intake-dialog";
+import { MedicineAlarmDialog } from "@/components/medicine-alarm-dialog";
+import { AlarmService } from "@/services/alarm-service";
+import { useToast } from "@/hooks/use-toast";
 import type { Treatment, Medicine, IntakeLog } from "@shared/schema";
 
 export default function PatientDashboard() {
+  const { toast } = useToast();
   const [selectedTreatmentId, setSelectedTreatmentId] = useState<string | null>(null);
   const [showAddTreatment, setShowAddTreatment] = useState(false);
   const [showAddMedicine, setShowAddMedicine] = useState(false);
   const [showLogIntake, setShowLogIntake] = useState(false);
+  const [showAlarmDialog, setShowAlarmDialog] = useState(false);
   const [selectedMedicineId, setSelectedMedicineId] = useState<string | null>(null);
+  const [alarmMedicine, setAlarmMedicine] = useState<Medicine | null>(null);
 
   const { data: treatments = [], isLoading: loadingTreatments } = useQuery<Treatment[]>({
     queryKey: ["/api/treatments"],
   });
+
+  // Set up alarm scheduler with periodic refresh
+  useEffect(() => {
+    if (treatments.length === 0) return;
+
+    let allMedicines: Medicine[] = [];
+    let unsubscribe: (() => void) | null = null;
+    let refreshInterval: NodeJS.Timeout | null = null;
+
+    const setupAlarm = async () => {
+      try {
+        // Fetch medicines for all treatments
+        const medicinesPromises = treatments.map(treatment =>
+          fetch(`/api/medicines/${treatment.id}`)
+            .then(res => res.ok ? res.json() : [])
+            .catch(() => [])
+        );
+
+        const medicinesArrays = await Promise.all(medicinesPromises);
+        const newMedicines = medicinesArrays.flat();
+
+        console.log("Setting up alarm scheduler with medicines:", newMedicines);
+        newMedicines.forEach(m => console.log(`  - ${m.name} at ${m.scheduleTime}`));
+
+        allMedicines = newMedicines;
+
+        // Clean up old subscription
+        if (unsubscribe) {
+          unsubscribe();
+        }
+
+        if (allMedicines.length > 0) {
+          unsubscribe = AlarmService.checkMedicineSchedules(allMedicines, (medicine) => {
+            console.log("🔔 Alarm triggered for medicine:", medicine.name);
+            setAlarmMedicine(medicine);
+            setShowAlarmDialog(true);
+            
+            // Show toast notification at top
+            toast({
+              title: "💊 Time to take medication!",
+              description: `It's time to take ${medicine.name}`,
+              duration: 10000, // Stay for 10 seconds
+            });
+          });
+        }
+      } catch (error) {
+        console.error("Error setting up alarm scheduler:", error);
+      }
+    };
+
+    setupAlarm();
+
+    // Refresh medicines every 30 seconds to catch newly added medicines
+    refreshInterval = setInterval(() => {
+      console.log("Refreshing medicines list...");
+      setupAlarm();
+    }, 30000);
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
+  }, [treatments, toast]);
 
   const handleLogIntake = (medicineId: string) => {
     setSelectedMedicineId(medicineId);
@@ -104,6 +177,11 @@ export default function PatientDashboard() {
         open={showLogIntake}
         onOpenChange={setShowLogIntake}
         medicineId={selectedMedicineId}
+      />
+      <MedicineAlarmDialog
+        open={showAlarmDialog}
+        onOpenChange={setShowAlarmDialog}
+        medicine={alarmMedicine}
       />
     </div>
   );
@@ -222,16 +300,17 @@ function MedicineItem({
   medicine: Medicine;
   onLogIntake: (medicineId: string) => void;
 }) {
-  const { data: recentLog } = useQuery<IntakeLog | null>({
-    queryKey: ["/api/intake-logs/recent", medicine.id],
+  const { data: todayLog } = useQuery<IntakeLog | null>({
+    queryKey: ["/api/intake-logs/today", medicine.id],
     queryFn: async () => {
-      const response = await fetch(`/api/intake-logs/recent/${medicine.id}`);
-      if (!response.ok) throw new Error("Failed to fetch recent log");
+      const response = await fetch(`/api/intake-logs/today/${medicine.id}`);
+      if (!response.ok) return null;
       return response.json();
     },
+    refetchInterval: 2000, // Check every 2 seconds
   });
 
-  const isTakenToday = recentLog?.status === "taken";
+  const isTakenToday = !!todayLog;
 
   return (
     <div
@@ -251,14 +330,20 @@ function MedicineItem({
           <span>{medicine.scheduleTime}</span>
         </div>
       </div>
-      <Button
-        size="sm"
-        onClick={() => onLogIntake(medicine.id)}
-        variant={isTakenToday ? "outline" : "default"}
-        data-testid={`button-log-intake-${medicine.id}`}
-      >
-        {isTakenToday ? "Logged" : "Log"}
-      </Button>
+      <div className="flex flex-col items-center gap-1">
+        <Button
+          size="sm"
+          onClick={() => onLogIntake(medicine.id)}
+          variant={isTakenToday ? "outline" : "default"}
+          disabled={isTakenToday}
+          data-testid={`button-log-intake-${medicine.id}`}
+        >
+          {isTakenToday ? "Logged" : "Log"}
+        </Button>
+        {isTakenToday && (
+          <span className="text-xs text-green-600 font-medium">Already taken</span>
+        )}
+      </div>
     </div>
   );
 }

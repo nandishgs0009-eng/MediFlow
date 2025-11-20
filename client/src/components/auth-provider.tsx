@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import type { User } from "@shared/schema";
 
 interface AuthContextType {
@@ -13,6 +14,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [, setLocation] = useLocation();
 
   const { data: currentUser, isLoading } = useQuery<User | null>({
     queryKey: ["/api/auth/me"],
@@ -29,9 +31,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(user);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Clear user state immediately for instant UI update
     setUser(null);
-    window.location.href = "/";
+    // Navigate immediately without waiting
+    setLocation("/");
+    // Send logout request in the background (fire and forget)
+    fetch("/api/auth/logout", { method: "POST" }).catch((error) => {
+      console.error("Logout error:", error);
+    });
   };
 
   return (

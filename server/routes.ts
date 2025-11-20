@@ -1,7 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, insertTreatmentSchema, insertMedicineSchema, insertIntakeLogSchema } from "@shared/schema";
+import { insertUserSchema, insertTreatmentSchema, insertMedicineSchema, insertIntakeLogSchema, medicines } from "@shared/schema";
+import { db } from "./db";
+import { count, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -27,7 +29,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tableName: "user_sessions",
         createTableIfMissing: true,
       }),
-      secret: process.env.SESSION_SECRET!,
+      secret: process.env.SESSION_SECRET || "dev-secret-key-change-in-production",
       resave: false,
       saveUninitialized: false,
       cookie: {
@@ -64,24 +66,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/signup", async (req, res) => {
     try {
       const data = insertUserSchema.parse(req.body);
-      
       const existingUser = await storage.getUserByUsername(data.username);
       if (existingUser) {
         return res.status(400).json({ error: "Username already exists" });
       }
-
       const existingEmail = await storage.getUserByEmail(data.email);
       if (existingEmail) {
         return res.status(400).json({ error: "Email already exists" });
       }
-
       const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
       const user = await storage.createUser({
         ...data,
         password: hashedPassword,
         role: data.role || "patient",
       });
-
       req.session.userId = user.id;
       const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
@@ -93,17 +91,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { username, password } = req.body;
-      const user = await storage.getUserByUsername(username);
-      
+      // Allow login with either username or email
+      let user = await storage.getUserByUsername(username);
+      if (!user) {
+        user = await storage.getUserByEmail(username);
+      }
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
-
       const validPassword = await bcrypt.compare(password, user.password);
       if (!validPassword) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
-
       req.session.userId = user.id;
       const { password: _, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
@@ -118,8 +117,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/auth/logout", (req, res) => {
-    req.session.destroy(() => {
-      res.json({ success: true });
+    res.json({ success: true });
+    // Destroy session in the background (fire and forget)
+    req.session.destroy((err) => {
+      if (err) {
+        console.error("Session destroy error:", err);
+      }
     });
   });
 
@@ -188,10 +191,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/intake-logs/today/:medicineId", requireAuth, async (req: any, res) => {
+    try {
+      const log = await storage.getTodayIntakeLog(req.params.medicineId);
+      res.json(log || null);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/intake-logs/today-all", requireAuth, async (req: any, res) => {
+    try {
+      const logs = await storage.getTodayIntakeLogs(req.user.id);
+      res.json(logs || []);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // History routes
+  app.get("/api/history/treatment/:treatmentId", requireAuth, async (req: any, res) => {
+    try {
+      const history = await storage.getTreatmentHistory(req.params.treatmentId);
+      res.json(history);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/history/medicine/:medicineId", requireAuth, async (req: any, res) => {
+    try {
+      const history = await storage.getMedicineIntakeHistory(req.params.medicineId);
+      res.json(history);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Health Summary routes
+  app.get("/api/health/daily-adherence", requireAuth, async (req: any, res) => {
+    try {
+      const days = req.query.days ? parseInt(req.query.days) : 30;
+      const adherence = await storage.getDailyAdherence(req.user.id, days);
+      res.json(adherence);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/health/monthly-adherence", requireAuth, async (req: any, res) => {
+    try {
+      const months = req.query.months ? parseInt(req.query.months) : 12;
+      const adherence = await storage.getMonthlyAdherence(req.user.id, months);
+      res.json(adherence);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Patient profile route
+  app.get("/api/patient/profile", requireAuth, async (req: any, res) => {
+    try {
+      const { password, ...userWithoutPassword } = req.user;
+      const treatments = await storage.getTreatmentsByPatient(req.user.id);
+      
+      res.json({
+        user: userWithoutPassword,
+        treatmentCount: treatments.length,
+        activeTreatments: treatments.filter(t => t.status === 'active').length,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update patient profile
+  app.patch("/api/patient/profile", requireAuth, async (req: any, res) => {
+    try {
+      const { fullName, email } = req.body;
+      
+      // Validate email uniqueness if changed
+      if (email && email !== req.user.email) {
+        const existingEmail = await storage.getUserByEmail(email);
+        if (existingEmail) {
+          return res.status(400).json({ error: "Email already exists" });
+        }
+      }
+
+      const updated = await storage.updateUser(req.user.id, { fullName, email });
+      const { password, ...userWithoutPassword } = updated;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+
+
   app.post("/api/intake-logs", requireAuth, async (req: any, res) => {
     try {
       const data = insertIntakeLogSchema.parse(req.body);
-      const log = await storage.createIntakeLog(data);
+      const log = await storage.createIntakeLog(data, req.user.id);
       res.json(log);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -201,27 +301,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Adherence calculation
   app.get("/api/adherence/:treatmentId", requireAuth, async (req: any, res) => {
     try {
-      const medicines = await storage.getMedicinesByTreatment(req.params.treatmentId);
-      
-      let totalDoses = 0;
-      let takenDoses = 0;
-
-      for (const medicine of medicines) {
-        const logs = await storage.getIntakeLogsByMedicine(medicine.id);
-        const taken = logs.filter(log => log.status === "taken").length;
-        const total = logs.length;
-        
-        totalDoses += total;
-        takenDoses += taken;
-      }
-
-      const percentage = totalDoses > 0 ? (takenDoses / totalDoses) * 100 : 0;
-
-      res.json({
-        percentage,
-        taken: takenDoses,
-        total: totalDoses,
-      });
+      const adherence = await storage.getTreatmentAdherence(req.params.treatmentId);
+      res.json(adherence);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -249,41 +330,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin routes
   app.get("/api/admin/stats", requireAuth, requireRole("admin"), async (req: any, res) => {
     try {
-      const patients = await storage.getAllPatients();
-      const totalPatients = patients.length;
-
-      let activeTreatments = 0;
-      let totalAdherence = 0;
-      let lowAdherenceCount = 0;
-
-      for (const patient of patients) {
-        const treatments = await storage.getTreatmentsByPatient(patient.id);
-        activeTreatments += treatments.filter(t => t.status === "active").length;
-
-        for (const treatment of treatments) {
-          const medicines = await storage.getMedicinesByTreatment(treatment.id);
-          let treatmentTaken = 0;
-          let treatmentTotal = 0;
-
-          for (const medicine of medicines) {
-            const logs = await storage.getIntakeLogsByMedicine(medicine.id);
-            treatmentTotal += logs.length;
-            treatmentTaken += logs.filter(log => log.status === "taken").length;
-          }
-
-          const adherence = treatmentTotal > 0 ? (treatmentTaken / treatmentTotal) * 100 : 0;
-          totalAdherence += adherence;
-          if (adherence < 70) lowAdherenceCount++;
-        }
-      }
-
-      const averageAdherence = activeTreatments > 0 ? totalAdherence / activeTreatments : 0;
-
+      const stats = await storage.getAdminDashboardStats();
+      
+      // Get total medicines count
+      const medicinesResult = await db
+        .select({ value: sql`count(*)` })
+        .from(medicines);
+      
+      const totalMedicines = parseInt(String(medicinesResult[0]?.value || "0"));
+      
       res.json({
-        totalPatients,
-        activeTreatments,
-        averageAdherence,
-        lowAdherenceCount,
+        totalPatients: stats.totalPatients,
+        activeTreatments: stats.activeTreatments,
+        totalMedicines: totalMedicines,
+        adherenceRate: Math.round(stats.averageAdherence),
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -292,37 +352,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/patients", requireAuth, requireRole("admin"), async (req: any, res) => {
     try {
-      const patients = await storage.getAllPatients();
+      const users = await storage.getAllPatients();
+      const patientStats = await storage.getPatientStats();
       
-      const patientStats = await Promise.all(
-        patients.map(async (patient) => {
-          const treatments = await storage.getTreatmentsByPatient(patient.id);
-          let totalTaken = 0;
-          let totalDoses = 0;
+      // Combine user data with stats
+      const patientsWithStats = users.map(user => {
+        const stats = patientStats.find(p => p.id === user.id);
+        return {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          fullName: user.fullName,
+          role: user.role,
+          createdAt: user.createdAt,
+          treatmentCount: stats?.treatmentCount || 0,
+          activeTreatments: stats?.activeTreatments || 0,
+        };
+      });
+      
+      res.json(patientsWithStats);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
-          for (const treatment of treatments) {
-            const medicines = await storage.getMedicinesByTreatment(treatment.id);
-            for (const medicine of medicines) {
-              const logs = await storage.getIntakeLogsByMedicine(medicine.id);
-              totalDoses += logs.length;
-              totalTaken += logs.filter(log => log.status === "taken").length;
-            }
-          }
+  app.delete("/api/admin/patients/:patientId", requireAuth, requireRole("admin"), async (req: any, res) => {
+    try {
+      const { patientId } = req.params;
+      
+      // Delete patient and all related data (cascading delete)
+      await storage.deletePatient(patientId);
+      
+      res.json({ success: true, message: "Patient deleted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
-          const adherenceRate = totalDoses > 0 ? (totalTaken / totalDoses) * 100 : 0;
-
-          return {
-            userId: patient.id,
-            fullName: patient.fullName,
-            email: patient.email,
-            treatmentCount: treatments.length,
-            adherenceRate,
-            lastActivity: patient.createdAt,
-          };
-        })
-      );
-
-      res.json(patientStats);
+  // Get all patients with detailed information (treatments and medicines)
+  app.get("/api/admin/patients/detailed/all", requireAuth, requireRole("admin"), async (req: any, res) => {
+    try {
+      const detailedPatients = await storage.getDetailedPatientInfo();
+      res.json(detailedPatients);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
