@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect } from "react";
-import { User, Mail, Calendar, Pill, Activity } from "lucide-react";
+import { User, Mail, Calendar, Pill, Activity, Shield } from "lucide-react";
 
 interface PatientProfile {
   user: {
@@ -17,6 +17,8 @@ interface PatientProfile {
     fullName: string;
     role: string;
     createdAt: string;
+    insuranceProvider?: string | null;
+    policyNumber?: string | null;
   };
   treatmentCount: number;
   activeTreatments: number;
@@ -26,9 +28,16 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState<{ fullName: string; email: string }>({
+  const [formData, setFormData] = useState<{
+    fullName: string;
+    email: string;
+    insuranceProvider: string;
+    policyNumber: string;
+  }>({
     fullName: "",
     email: "",
+    insuranceProvider: "",
+    policyNumber: "",
   });
 
   const { data: profile, isLoading } = useQuery<PatientProfile>({
@@ -41,6 +50,8 @@ export default function ProfilePage() {
       setFormData({
         fullName: profile.user.fullName,
         email: profile.user.email,
+        insuranceProvider: profile.user.insuranceProvider || "",
+        policyNumber: profile.user.policyNumber || "",
       });
     }
   }, [profile]);
@@ -141,6 +152,26 @@ export default function ProfilePage() {
                   className="opacity-60 cursor-not-allowed"
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="insuranceProvider">Insurance Provider</Label>
+                <Input
+                  id="insuranceProvider"
+                  value={formData.insuranceProvider}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, insuranceProvider: e.target.value }))
+                  }
+                  placeholder="e.g., Blue Cross"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="policyNumber">Policy Number</Label>
+                <Input
+                  id="policyNumber"
+                  value={formData.policyNumber}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, policyNumber: e.target.value }))}
+                  placeholder="e.g., XZ123456789"
+                />
+              </div>
               <div className="flex gap-2">
                 <Button
                   type="submit"
@@ -157,6 +188,8 @@ export default function ProfilePage() {
                     setFormData({
                       fullName: profile.user.fullName,
                       email: profile.user.email,
+                      insuranceProvider: profile.user.insuranceProvider || "",
+                      policyNumber: profile.user.policyNumber || "",
                     });
                   }}
                   className="w-full"
@@ -230,6 +263,30 @@ export default function ProfilePage() {
                 <p className="text-sm font-medium text-muted-foreground">Active Treatments</p>
               </div>
               <p className="text-3xl font-bold text-green-600">{(profile as any)?.activeTreatments}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Insurance Details Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Insurance Details</CardTitle>
+          <CardDescription>Your medical insurance information</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-start gap-3">
+            <Shield className="w-5 h-5 text-muted-foreground mt-1" />
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Provider</p>
+              <p className="text-lg font-semibold">{profile.user.insuranceProvider || "Not set"}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <Shield className="w-5 h-5 text-muted-foreground mt-1" />
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Policy Number</p>
+              <p className="text-lg font-semibold">{profile.user.policyNumber || "Not set"}</p>
             </div>
           </div>
         </CardContent>

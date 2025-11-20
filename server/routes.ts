@@ -252,9 +252,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Patient profile route
   app.get("/api/patient/profile", requireAuth, async (req: any, res) => {
     try {
-      const { password, ...userWithoutPassword } = req.user;
+      // Fetch the latest user data from the database instead of using the stale req.user from the session
+      const freshUser = await storage.getUser(req.user.id);
+      if (!freshUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const { password, ...userWithoutPassword } = freshUser;
       const treatments = await storage.getTreatmentsByPatient(req.user.id);
-      
       res.json({
         user: userWithoutPassword,
         treatmentCount: treatments.length,
