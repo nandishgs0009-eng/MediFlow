@@ -33,12 +33,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       resave: false,
       saveUninitialized: false,
       cookie: {
+        // This is the key change
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         secure: process.env.NODE_ENV === "production",
         httpOnly: true,
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
       },
     })
   );
+  // This is required for cross-domain cookie sending over HTTPS
+  app.set("trust proxy", 1);
 
   // Auth middleware
   const requireAuth = async (req: any, res: any, next: any) => {
