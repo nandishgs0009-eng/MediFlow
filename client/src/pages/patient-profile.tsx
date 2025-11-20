@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect } from "react";
+import { apiRequest } from "@/lib/queryClient";
 import { User, Mail, Calendar, Pill, Activity, Shield } from "lucide-react";
 
 interface PatientProfile {
@@ -58,15 +59,7 @@ export default function ProfilePage() {
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const response = await fetch("/api/patient/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) {
-        throw new Error("Failed to update profile");
-      }
-      return response.json();
+      return await apiRequest("PATCH", "/api/patient/profile", data).then(res => res.json());
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/patient/profile"] });
