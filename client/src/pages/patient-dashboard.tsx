@@ -198,20 +198,10 @@ function TreatmentCard({
 }) {
   const { data: medicines = [] } = useQuery<Medicine[]>({
     queryKey: ["/api/medicines", treatment.id],
-    queryFn: async () => {
-      const response = await fetch(`/api/medicines/${treatment.id}`);
-      if (!response.ok) throw new Error("Failed to fetch medicines");
-      return response.json();
-    },
   });
 
   const { data: adherenceData } = useQuery<{ percentage: number; taken: number; total: number }>({
     queryKey: ["/api/adherence", treatment.id],
-    queryFn: async () => {
-      const response = await fetch(`/api/adherence/${treatment.id}`);
-      if (!response.ok) throw new Error("Failed to fetch adherence");
-      return response.json();
-    },
   });
 
   const adherencePercentage = adherenceData?.percentage || 0;

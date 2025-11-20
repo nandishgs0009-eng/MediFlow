@@ -27,8 +27,10 @@ app.set("trust proxy", 1);
 // Enable CORS
 const allowedOrigins = [
   "http://localhost:5173", // Your local frontend
-  // IMPORTANT: Add your deployed Netlify URL here
-  "https://mediflow-web.netlify.app",
+  "http://localhost:3000", // Alternative local port
+  "http://127.0.0.1:5173", // Local IP
+  "http://127.0.0.1:3000", // Local IP alt
+  "https://mediflow-web.netlify.app", // Your deployed Netlify URL
 ];
 
 app.use(
@@ -39,8 +41,16 @@ app.use(
       if (allowedOrigins.indexOf(origin) !== -1) {
         return callback(null, true);
       }
-      // Allow all netlify subdomains for deploy previews
+      // Allow all localhost/127.0.0.1 for development
+      if (/^http:\/\/(localhost|127\.0\.0\.1)/.test(origin)) {
+        return callback(null, true);
+      }
+      // Allow all netlify subdomains for deploy previews and production
       if (/\.netlify\.app$/.test(origin)) {
+        return callback(null, true);
+      }
+      // Allow Render and other deployment platforms
+      if (/\.onrender\.com$/.test(origin)) {
         return callback(null, true);
       }
       return callback(new Error("Not allowed by CORS"));
