@@ -156,28 +156,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Medicine routes
   app.get("/api/medicines/:treatmentId", requireAuth, async (req: any, res) => {
     try {
+      // Security Check: Ensure the user owns the treatment
+      const treatment = await storage.getTreatment(req.params.treatmentId);
+      if (!treatment || treatment.patientId !== req.user.id) {
+        return res.status(403).json({ error: "Forbidden: You do not have access to this treatment" });
+      }
+
       const medicines = await storage.getMedicinesByTreatment(req.params.treatmentId);
       res.json(medicines);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
-
+  
   app.get("/api/medicines/detail/:medicineId", requireAuth, async (req: any, res) => {
     try {
       const medicine = await storage.getMedicine(req.params.medicineId);
       if (!medicine) {
         return res.status(404).json({ error: "Medicine not found" });
       }
+      // Security Check: Ensure the user owns the treatment this medicine belongs to
+      const treatment = await storage.getTreatment(medicine.treatmentId);
+      if (!treatment || treatment.patientId !== req.user.id) {
+        return res.status(403).json({ error: "Forbidden: You do not have access to this medicine" });
+      }
       res.json(medicine);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
-
+  
   app.post("/api/medicines", requireAuth, async (req: any, res) => {
     try {
       const data = insertMedicineSchema.parse(req.body);
+
+      // Security Check: Ensure the user owns the treatment they are adding a medicine to
+      const treatment = await storage.getTreatment(data.treatmentId);
+      if (!treatment || treatment.patientId !== req.user.id) {
+        return res.status(403).json({ error: "Forbidden: You cannot add a medicine to this treatment" });
+      }
+
       const medicine = await storage.createMedicine(data);
       res.json(medicine);
     } catch (error: any) {
