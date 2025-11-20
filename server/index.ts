@@ -1,8 +1,11 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { pool } from "./db";
 
 const app = express();
 
@@ -18,20 +21,54 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 
+// This is required for cross-domain cookie sending over HTTPS
+app.set("trust proxy", 1);
+
 // Enable CORS
 const allowedOrigins = [
   "http://localhost:5173", // Your local frontend
   // IMPORTANT: Add your deployed Netlify URL here
-  "https://your-netlify-app-name.netlify.app",
+  "https://mediflow-web.netlify.app",
 ];
 
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        return callback(null, true);
+      }
+      // Allow all netlify subdomains for deploy previews
+      if (/\.netlify\.app$/.test(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true, // Allow cookies to be sent with requests
-  }),
+  })
 );
 
+// Session middleware with PostgreSQL backing
+const PgSession = connectPgSimple(session);
+app.use(
+  session({
+    store: new PgSession({
+      pool: pool,
+      tableName: "user_sessions",
+      createTableIfMissing: true,
+    }),
+    secret: process.env.SESSION_SECRET || "dev-secret-key-change-in-production",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    },
+  })
+);
 
 app.use((req, res, next) => {
   const start = Date.now();
