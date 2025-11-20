@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
@@ -16,6 +17,21 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false }));
+
+// Enable CORS
+const allowedOrigins = [
+  "http://localhost:5173", // Your local frontend
+  // IMPORTANT: Add your deployed Netlify URL here
+  "https://your-netlify-app-name.netlify.app",
+];
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true, // Allow cookies to be sent with requests
+  }),
+);
+
 
 app.use((req, res, next) => {
   const start = Date.now();
