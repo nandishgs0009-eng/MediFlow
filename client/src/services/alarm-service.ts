@@ -1,4 +1,5 @@
 import type { Medicine } from "@shared/schema";
+import { PWANotificationService } from "./pwaNotifications";
 
 let audioContext: AudioContext | null = null;
 let oscillator: OscillatorNode | null = null;
@@ -7,6 +8,47 @@ let alarmRunning = false;
 let lastTriggeredMedicineId: string | null = null;
 
 export const AlarmService = {
+  // Initialize PWA notifications
+  setupBackgroundNotifications: async () => {
+    console.log('AlarmService: Setting up background notifications...');
+    const success = await PWANotificationService.initialize();
+    if (success) {
+      PWANotificationService.setupMessageListener();
+      console.log('AlarmService: Background notifications ready!');
+    }
+    return success;
+  },
+
+  // Schedule background notifications for all medicines
+  scheduleAllMedicineNotifications: async (medicines: Medicine[]) => {
+    console.log('AlarmService: Scheduling notifications for all medicines...');
+    for (const medicine of medicines) {
+      if (medicine.scheduleTime) {
+        await PWANotificationService.scheduleMedicineNotification(
+          medicine.id,
+          medicine.name,
+          medicine.scheduleTime
+        );
+      }
+    }
+  },
+
+  // Test notification
+  testNotification: async () => {
+    await PWANotificationService.showTestNotification();
+  },
+
+  // Setup visibility handling for when app goes to background
+  setupVisibilityHandling: () => {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        console.log('AlarmService: App went to background - notifications will continue');
+      } else {
+        console.log('AlarmService: App came to foreground');
+      }
+    });
+  },
+
   isAlarmRunning: () => alarmRunning,
 
   playAlarmSound: () => {
@@ -148,6 +190,14 @@ export const AlarmService = {
         if (medicineTime === currentTime && !checkedMedicines.has(medicine.id)) {
           console.log(`🔔🔔🔔 ALARM TRIGGERED! Medicine: ${medicine.name} at ${currentTime} 🔔🔔🔔`);
           checkedMedicines.add(medicine.id);
+          
+          // Schedule immediate PWA notification
+          PWANotificationService.scheduleMedicineNotification(
+            medicine.id,
+            medicine.name,
+            medicineTime
+          ).catch(console.error);
+          
           callback(medicine);
           
           // Remove from checked set after 1.5 minutes to reset

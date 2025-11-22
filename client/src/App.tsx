@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { NotificationCenter } from "@/components/notification-center";
 import { AuthProvider, useAuth } from "@/components/auth-provider";
 import { ProtectedRoute } from "@/components/protected-route";
+import { AlarmService } from "@/services/alarm-service";
 import Landing from "@/pages/landing";
 import PatientDashboard from "@/pages/patient-dashboard";
 import PatientOverview from "@/pages/patient-overview";
@@ -206,6 +207,32 @@ function Router() {
 }
 
 export default function App() {
+  // Initialize PWA notifications and background handling
+  useEffect(() => {
+    const initializeNotifications = async () => {
+      console.log('App: Initializing PWA notifications...');
+      
+      // Setup background notifications
+      const success = await AlarmService.setupBackgroundNotifications();
+      if (success) {
+        console.log('App: Background notifications initialized successfully');
+      } else {
+        console.warn('App: Background notifications initialization failed');
+      }
+      
+      // Setup visibility handling
+      AlarmService.setupVisibilityHandling();
+      
+      // Request notification permissions
+      if ('Notification' in window) {
+        const permission = await Notification.requestPermission();
+        console.log('App: Notification permission:', permission);
+      }
+    };
+
+    initializeNotifications().catch(console.error);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

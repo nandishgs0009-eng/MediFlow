@@ -53,6 +53,9 @@ export default function PatientDashboard() {
 
         allMedicines = newMedicines;
 
+        // Schedule background notifications for all medicines
+        await AlarmService.scheduleAllMedicineNotifications(allMedicines);
+
         // Clean up old subscription
         if (unsubscribe) {
           unsubscribe();
@@ -124,10 +127,19 @@ export default function PatientDashboard() {
           <h1 className="text-3xl md:text-4xl font-semibold">My Treatments</h1>
           <p className="text-muted-foreground mt-1">Manage your medications and track your progress</p>
         </div>
-        <Button onClick={() => setShowAddTreatment(true)} data-testid="button-add-treatment">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Treatment
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => AlarmService.testNotification()}
+            variant="outline"
+            className="gap-2"
+          >
+            🔔 Test Notification
+          </Button>
+          <Button onClick={() => setShowAddTreatment(true)} data-testid="button-add-treatment">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Treatment
+          </Button>
+        </div>
       </div>
 
       {/* Empty State */}
